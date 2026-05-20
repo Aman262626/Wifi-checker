@@ -846,6 +846,44 @@ body {
     color: var(--text-dim);
 }
 
+.device-item-meta {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 3px;
+    flex-shrink: 0;
+}
+
+.device-item-ports {
+    font-family: var(--font-display);
+    font-size: 0.55rem;
+    color: var(--text-dim);
+    margin-top: 2px;
+}
+
+.device-ports {
+    color: var(--text-secondary);
+}
+
+.device-item-seen {
+    font-size: 0.55rem;
+    color: var(--text-dim);
+    font-style: italic;
+}
+
+.device-item.device-offline {
+    opacity: 0.45;
+}
+
+.device-item-icon.offline svg {
+    color: var(--text-dim);
+}
+
+.device-item-badge.offline {
+    color: var(--text-dim);
+    background: rgba(255, 255, 255, 0.05);
+}
+
 /* ========== Footer ========== */
 .app-footer {
     text-align: center;

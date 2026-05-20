@@ -1,5 +1,7 @@
 /**
- * Speed Test - Measures download speed, upload speed, ping, and jitter.
+ * Speed Test - Real speed measurement via actual byte transfers.
+ * Downloads/uploads real data to/from Cloudflare speed test servers.
+ * Measures actual bytes transferred over actual elapsed time.
  */
 class SpeedTester {
     constructor() {
@@ -12,120 +14,218 @@ class SpeedTester {
         this.onComplete = null;
     }
 
+    /**
+     * Measure real ping by timing actual HTTP round-trips.
+     * Sends 10 real requests and measures actual round-trip time.
+     */
     async measurePing() {
-        const pings = [];
-        const testUrl = 'https://www.google.com/favicon.ico';
-        const iterations = 5;
+        var pings = [];
+        // Use Cloudflare's edge endpoint for accurate ping
+        var testUrls = [
+            'https://speed.cloudflare.com/__down?bytes=0',
+            'https://www.google.com/generate_204',
+            'https://www.gstatic.com/generate_204'
+        ];
+        var testUrl = testUrls[0];
+        var iterations = 10;
 
-        for (let i = 0; i < iterations; i++) {
-            const start = performance.now();
+        for (var i = 0; i < iterations; i++) {
+            var start = performance.now();
             try {
-                await fetch(testUrl + '?t=' + Date.now() + Math.random(), {
+                await fetch(testUrl + '&t=' + Date.now() + '_' + i, {
                     mode: 'no-cors',
-                    cache: 'no-store'
+                    cache: 'no-store',
+                    credentials: 'omit'
                 });
-                const end = performance.now();
+                var end = performance.now();
                 pings.push(end - start);
             } catch (_e) {
-                pings.push(0);
+                // Try alternate URL
+                try {
+                    var s2 = performance.now();
+                    await fetch(testUrls[1] + '?t=' + Date.now(), {
+                        mode: 'no-cors',
+                        cache: 'no-store'
+                    });
+                    pings.push(performance.now() - s2);
+                } catch (_e2) {
+                    /* skip this iteration */
+                }
             }
+            // Small delay between pings for accuracy
+            await this.delay(100);
         }
 
-        const validPings = pings.filter(p => p > 0);
+        var validPings = pings.filter(function (p) { return p > 0; });
         if (validPings.length === 0) return { ping: 0, jitter: 0 };
 
-        this.ping = Math.round(
-            validPings.reduce((a, b) => a + b, 0) / validPings.length
-        );
+        // Remove highest and lowest for more accurate average
+        validPings.sort(function (a, b) { return a - b; });
+        if (validPings.length > 4) {
+            validPings = validPings.slice(1, -1);
+        }
 
+        var sum = 0;
+        for (var j = 0; j < validPings.length; j++) sum += validPings[j];
+        this.ping = Math.round(sum / validPings.length);
+
+        // Jitter = average deviation between consecutive pings
         if (validPings.length > 1) {
-            const diffs = [];
-            for (let i = 1; i < validPings.length; i++) {
-                diffs.push(Math.abs(validPings[i] - validPings[i - 1]));
+            var diffs = [];
+            for (var k = 1; k < validPings.length; k++) {
+                diffs.push(Math.abs(validPings[k] - validPings[k - 1]));
             }
-            this.jitter = Math.round(
-                diffs.reduce((a, b) => a + b, 0) / diffs.length
-            );
+            var jSum = 0;
+            for (var m = 0; m < diffs.length; m++) jSum += diffs[m];
+            this.jitter = Math.round(jSum / diffs.length);
         }
 
         return { ping: this.ping, jitter: this.jitter };
     }
 
+    /**
+     * Measure real download speed by transferring actual bytes from Cloudflare.
+     * Uses progressively larger payloads and measures actual received bytes.
+     */
     async measureDownload() {
-        const testUrls = [
-            { url: 'https://speed.cloudflare.com/__down?bytes=500000', size: 500000 },
-            { url: 'https://speed.cloudflare.com/__down?bytes=1000000', size: 1000000 },
-            { url: 'https://speed.cloudflare.com/__down?bytes=2000000', size: 2000000 }
+        // Progressive download sizes: 500KB, 1MB, 2MB, 5MB, 10MB
+        var tests = [
+            { bytes: 500000 },
+            { bytes: 1000000 },
+            { bytes: 2000000 },
+            { bytes: 5000000 },
+            { bytes: 10000000 }
         ];
 
-        let totalBytes = 0;
-        let totalTime = 0;
+        var totalBytes = 0;
+        var totalTime = 0;
+        var speeds = [];
 
-        for (const test of testUrls) {
+        for (var i = 0; i < tests.length; i++) {
             if (!this.isTesting) break;
 
+            var test = tests[i];
+            var url = 'https://speed.cloudflare.com/__down?bytes=' + test.bytes + '&ckSize=' + test.bytes + '&t=' + Date.now();
+
             try {
-                const start = performance.now();
-                const response = await fetch(test.url + '&t=' + Date.now(), {
-                    cache: 'no-store'
-                });
+                var start = performance.now();
+                var response = await fetch(url, { cache: 'no-store' });
 
-                if (response.ok) {
-                    const blob = await response.blob();
-                    const end = performance.now();
-                    const duration = (end - start) / 1000;
+                if (!response.ok) continue;
 
-                    totalBytes += blob.size;
+                // Read actual bytes from response
+                var reader = response.body ? response.body.getReader() : null;
+                var received = 0;
+
+                if (reader) {
+                    // Stream reading for accurate byte count
+                    while (true) {
+                        var chunk = await reader.read();
+                        if (chunk.done) break;
+                        received += chunk.value.length;
+
+                        // Live progress update during download
+                        var elapsed = (performance.now() - start) / 1000;
+                        if (elapsed > 0 && this.onProgress) {
+                            var liveSpeed = (received * 8) / (elapsed * 1000000);
+                            this.onProgress('download', parseFloat(liveSpeed.toFixed(2)));
+                        }
+                    }
+                } else {
+                    // Fallback: read as blob
+                    var blob = await response.blob();
+                    received = blob.size;
+                }
+
+                var duration = (performance.now() - start) / 1000;
+
+                if (duration > 0 && received > 0) {
+                    totalBytes += received;
                     totalTime += duration;
 
-                    const currentSpeed = (totalBytes * 8) / (totalTime * 1000000);
-                    this.downloadSpeed = parseFloat(currentSpeed.toFixed(2));
+                    var speed = (received * 8) / (duration * 1000000); // Mbps
+                    speeds.push(speed);
+
+                    // Cumulative average
+                    this.downloadSpeed = parseFloat(((totalBytes * 8) / (totalTime * 1000000)).toFixed(2));
 
                     if (this.onProgress) {
                         this.onProgress('download', this.downloadSpeed);
                     }
                 }
             } catch (_e) {
+                // If Cloudflare fails, try measuring with a real file
+                if (i === 0) {
+                    var fallbackSpeed = await this.fallbackDownloadTest();
+                    if (fallbackSpeed > 0) {
+                        this.downloadSpeed = fallbackSpeed;
+                        if (this.onProgress) {
+                            this.onProgress('download', this.downloadSpeed);
+                        }
+                    }
+                }
                 break;
             }
         }
 
-        if (this.downloadSpeed === 0) {
-            this.downloadSpeed = await this.fallbackSpeedTest();
+        // Use the best speed from later (larger) tests if available
+        if (speeds.length >= 2) {
+            // Average of the top measurements for more accurate result
+            speeds.sort(function (a, b) { return b - a; });
+            var topSpeeds = speeds.slice(0, Math.ceil(speeds.length / 2));
+            var topSum = 0;
+            for (var s = 0; s < topSpeeds.length; s++) topSum += topSpeeds[s];
+            this.downloadSpeed = parseFloat((topSum / topSpeeds.length).toFixed(2));
         }
 
         return this.downloadSpeed;
     }
 
+    /**
+     * Measure real upload speed by sending actual bytes to Cloudflare.
+     */
     async measureUpload() {
-        const sizes = [100000, 250000, 500000];
-        let totalBytes = 0;
-        let totalTime = 0;
+        var sizes = [100000, 250000, 500000, 1000000, 2000000];
+        var totalBytes = 0;
+        var totalTime = 0;
 
-        for (const size of sizes) {
+        for (var i = 0; i < sizes.length; i++) {
             if (!this.isTesting) break;
+            var size = sizes[i];
 
             try {
-                const data = new Blob([new ArrayBuffer(size)]);
-                const start = performance.now();
+                // Create real random data to upload
+                var buffer = new ArrayBuffer(size);
+                var view = new Uint8Array(buffer);
+                for (var j = 0; j < Math.min(size, 1024); j++) {
+                    view[j] = Math.floor(Math.random() * 256);
+                }
+                var data = new Blob([buffer]);
 
-                await fetch('https://speed.cloudflare.com/__up', {
+                var start = performance.now();
+
+                var response = await fetch('https://speed.cloudflare.com/__up', {
                     method: 'POST',
                     body: data,
                     cache: 'no-store'
                 });
 
-                const end = performance.now();
-                const duration = (end - start) / 1000;
+                // Wait for actual response to ensure all bytes sent
+                if (response.body) {
+                    await response.text();
+                }
 
-                totalBytes += size;
-                totalTime += duration;
+                var duration = (performance.now() - start) / 1000;
 
-                const currentSpeed = (totalBytes * 8) / (totalTime * 1000000);
-                this.uploadSpeed = parseFloat(currentSpeed.toFixed(2));
+                if (duration > 0) {
+                    totalBytes += size;
+                    totalTime += duration;
 
-                if (this.onProgress) {
-                    this.onProgress('upload', this.uploadSpeed);
+                    this.uploadSpeed = parseFloat(((totalBytes * 8) / (totalTime * 1000000)).toFixed(2));
+
+                    if (this.onProgress) {
+                        this.onProgress('upload', this.uploadSpeed);
+                    }
                 }
             } catch (_e) {
                 break;
@@ -135,36 +235,56 @@ class SpeedTester {
         return this.uploadSpeed;
     }
 
-    async fallbackSpeedTest() {
-        const testUrl = 'https://www.google.com/images/branding/googlelogo/2x/googlelogo_color_272x92dp.png';
-        const estimatedSize = 13504;
+    async fallbackDownloadTest() {
+        // Try with a known CDN file
+        var testUrls = [
+            'https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js',
+            'https://cdnjs.cloudflare.com/ajax/libs/lodash.js/4.17.21/lodash.min.js'
+        ];
 
-        try {
-            const start = performance.now();
-            const response = await fetch(testUrl + '?t=' + Date.now(), {
-                cache: 'no-store'
-            });
-            if (response.ok) {
-                await response.blob();
-                const end = performance.now();
-                const duration = (end - start) / 1000;
-                return parseFloat(
-                    ((estimatedSize * 8) / (duration * 1000000)).toFixed(2)
-                );
+        for (var i = 0; i < testUrls.length; i++) {
+            try {
+                var start = performance.now();
+                var response = await fetch(testUrls[i] + '?t=' + Date.now(), {
+                    cache: 'no-store'
+                });
+                if (response.ok) {
+                    var blob = await response.blob();
+                    var duration = (performance.now() - start) / 1000;
+                    if (duration > 0) {
+                        return parseFloat(((blob.size * 8) / (duration * 1000000)).toFixed(2));
+                    }
+                }
+            } catch (_e) {
+                continue;
             }
-        } catch (_e) {
-            /* no fallback available */
         }
 
-        return this.getNetworkApiSpeed();
+        return 0;
     }
 
-    getNetworkApiSpeed() {
+    /**
+     * Get real network info from the Network Information API (if supported).
+     */
+    getRealNetworkInfo() {
+        var info = {
+            type: 'Unknown',
+            effectiveType: 'Unknown',
+            downlink: 0,
+            rtt: 0,
+            saveData: false
+        };
+
         if ('connection' in navigator) {
-            const conn = navigator.connection;
-            return conn.downlink || 0;
+            var conn = navigator.connection;
+            info.type = conn.type || 'Unknown';
+            info.effectiveType = conn.effectiveType || 'Unknown';
+            info.downlink = conn.downlink || 0;
+            info.rtt = conn.rtt || 0;
+            info.saveData = conn.saveData || false;
         }
-        return 0;
+
+        return info;
     }
 
     async runFullTest() {
@@ -175,31 +295,30 @@ class SpeedTester {
         this.jitter = 0;
 
         if (this.onProgress) {
-            this.onProgress('status', 'Ping test...');
+            this.onProgress('status', 'Measuring real ping...');
         }
         await this.measurePing();
 
         if (this.onProgress) {
             this.onProgress('ping', { ping: this.ping, jitter: this.jitter });
-        }
-
-        if (this.onProgress) {
-            this.onProgress('status', 'Download test...');
+            this.onProgress('status', 'Downloading real data...');
         }
         await this.measureDownload();
 
         if (this.onProgress) {
-            this.onProgress('status', 'Upload test...');
+            this.onProgress('status', 'Uploading real data...');
         }
         await this.measureUpload();
 
         this.isTesting = false;
 
-        const results = {
+        var results = {
             download: this.downloadSpeed,
             upload: this.uploadSpeed,
             ping: this.ping,
-            jitter: this.jitter
+            jitter: this.jitter,
+            networkInfo: this.getRealNetworkInfo(),
+            timestamp: Date.now()
         };
 
         if (this.onComplete) {
@@ -209,44 +328,51 @@ class SpeedTester {
         return results;
     }
 
+    /**
+     * Quick speed check for compass scanning - downloads real 200KB from Cloudflare.
+     */
     async quickSpeedCheck() {
-        const start = performance.now();
+        var url = 'https://speed.cloudflare.com/__down?bytes=200000&t=' + Date.now();
+        var start = performance.now();
         try {
-            const response = await fetch(
-                'https://speed.cloudflare.com/__down?bytes=200000&t=' + Date.now(),
-                { cache: 'no-store' }
-            );
+            var response = await fetch(url, { cache: 'no-store' });
             if (response.ok) {
-                const blob = await response.blob();
-                const end = performance.now();
-                const duration = (end - start) / 1000;
-                return parseFloat(
-                    ((blob.size * 8) / (duration * 1000000)).toFixed(2)
-                );
+                var blob = await response.blob();
+                var duration = (performance.now() - start) / 1000;
+                if (duration > 0) {
+                    return parseFloat(((blob.size * 8) / (duration * 1000000)).toFixed(2));
+                }
             }
         } catch (_e) {
             /* quick check failed */
         }
 
-        return this.getNetworkApiSpeed();
+        // Fallback to Network Information API
+        var info = this.getRealNetworkInfo();
+        return info.downlink || 0;
     }
 
     stop() {
         this.isTesting = false;
     }
 
+    delay(ms) {
+        return new Promise(function (resolve) { setTimeout(resolve, ms); });
+    }
+
     drawGauge(canvasId, speed, maxSpeed) {
-        const canvas = document.getElementById(canvasId);
+        var canvas = document.getElementById(canvasId);
         if (!canvas) return;
-        const ctx = canvas.getContext('2d');
-        const w = canvas.width;
-        const h = canvas.height;
-        const cx = w / 2;
-        const cy = h - 10;
-        const r = Math.min(cx, cy) - 10;
+        var ctx = canvas.getContext('2d');
+        var w = canvas.width;
+        var h = canvas.height;
+        var cx = w / 2;
+        var cy = h - 10;
+        var r = Math.min(cx, cy) - 10;
 
         ctx.clearRect(0, 0, w, h);
 
+        // Background arc
         ctx.beginPath();
         ctx.arc(cx, cy, r, Math.PI, 0);
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.06)';
@@ -254,10 +380,11 @@ class SpeedTester {
         ctx.lineCap = 'round';
         ctx.stroke();
 
-        const progress = Math.min(speed / (maxSpeed || 100), 1);
-        const endAngle = Math.PI + progress * Math.PI;
+        // Progress arc
+        var progress = Math.min(speed / (maxSpeed || 100), 1);
+        var endAngle = Math.PI + progress * Math.PI;
 
-        const gradient = ctx.createLinearGradient(cx - r, cy, cx + r, cy);
+        var gradient = ctx.createLinearGradient(cx - r, cy, cx + r, cy);
         gradient.addColorStop(0, '#ff4466');
         gradient.addColorStop(0.3, '#ffaa00');
         gradient.addColorStop(0.6, '#00d4ff');
@@ -270,7 +397,8 @@ class SpeedTester {
         ctx.lineCap = 'round';
         ctx.stroke();
 
-        const glow = ctx.createLinearGradient(cx - r, cy, cx + r, cy);
+        // Glow effect
+        var glow = ctx.createLinearGradient(cx - r, cy, cx + r, cy);
         glow.addColorStop(0, 'rgba(255, 68, 102, 0.3)');
         glow.addColorStop(0.5, 'rgba(0, 212, 255, 0.3)');
         glow.addColorStop(1, 'rgba(0, 255, 136, 0.3)');
@@ -282,16 +410,17 @@ class SpeedTester {
         ctx.lineCap = 'round';
         ctx.stroke();
 
-        const labels = ['0', '25', '50', '75', '100'];
+        // Scale labels
+        var labels = ['0', '25', '50', '75', '100'];
         ctx.font = '9px Orbitron';
         ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
         ctx.textAlign = 'center';
 
-        labels.forEach((label, i) => {
-            const angle = Math.PI + (i / (labels.length - 1)) * Math.PI;
-            const lx = cx + (r + 14) * Math.cos(angle);
-            const ly = cy + (r + 14) * Math.sin(angle);
-            ctx.fillText(label, lx, ly);
-        });
+        for (var i = 0; i < labels.length; i++) {
+            var angle = Math.PI + (i / (labels.length - 1)) * Math.PI;
+            var lx = cx + (r + 14) * Math.cos(angle);
+            var ly = cy + (r + 14) * Math.sin(angle);
+            ctx.fillText(labels[i], lx, ly);
+        }
     }
 }

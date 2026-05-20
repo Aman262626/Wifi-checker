@@ -52,7 +52,6 @@
 
     let scanHistory = [];
     let isScanning = false;
-    let deviceHeading = null;
 
     function init() {
         updateConnectionInfo();
@@ -75,28 +74,12 @@
     }
 
     function setupDeviceOrientation() {
-        if ('DeviceOrientationEvent' in window) {
-            if (typeof DeviceOrientationEvent.requestPermission === 'function') {
-                elements.btnScan.addEventListener('click', async function requestOrientation() {
-                    try {
-                        const permission = await DeviceOrientationEvent.requestPermission();
-                        if (permission === 'granted') {
-                            window.addEventListener('deviceorientation', handleOrientation);
-                        }
-                    } catch (_e) {
-                        /* permission denied or not supported */
-                    }
-                    elements.btnScan.removeEventListener('click', requestOrientation);
-                }, { once: true });
-            } else {
-                window.addEventListener('deviceorientation', handleOrientation);
-            }
-        }
-    }
-
-    function handleOrientation(event) {
-        if (event.alpha !== null) {
-            deviceHeading = Math.round(event.alpha);
+        // Compass class handles sensor directly, but request iOS permission here via user gesture
+        if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+            elements.btnScan.addEventListener('click', async function requestOrientation() {
+                await compass.requestPermission();
+                elements.btnScan.removeEventListener('click', requestOrientation);
+            }, { once: true });
         }
     }
 
@@ -168,44 +151,51 @@
     async function startScan() {
         isScanning = true;
         elements.btnScan.classList.add('scanning');
-        elements.btnScan.innerHTML = `
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
-                <rect x="6" y="6" width="12" height="12" rx="2"></rect>
-            </svg>
-            Stop
-        `;
+        elements.btnScan.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><rect x="6" y="6" width="12" height="12" rx="2"></rect></svg> Stop';
         compass.startScan();
 
-        updateHint('Scanning shuru ho gaya... Apna phone ghuma kar dekhein', false);
+        if (compass.sensorAvailable) {
+            updateHint('Real sensor active! Phone ghuma kar har direction measure karein', false);
+        } else {
+            updateHint('Desktop mode - 8 directions scan ho rahi hain with real speed test', false);
+        }
 
-        const totalSteps = 8;
-        const directions = [0, 45, 90, 135, 180, 225, 270, 315];
+        var directions = [0, 45, 90, 135, 180, 225, 270, 315];
 
-        for (let i = 0; i < totalSteps && isScanning; i++) {
-            const deg = directions[i];
+        for (var i = 0; i < directions.length && isScanning; i++) {
+            var deg;
 
-            compass.setScanAngle(deg);
+            if (compass.sensorAvailable) {
+                // Use real sensor heading - wait for user to face this direction
+                deg = compass.getRealHeading();
+                var nearestSector = compass.getNearestSector(deg);
+                var dirName = compass.getDirectionName(nearestSector);
+                updateHint('Facing ' + dirName + ' (' + deg + '°) - Measuring real speed...', false);
+                compass.setScanAngle(deg);
+            } else {
+                deg = directions[i];
+                var dirNameFixed = compass.getDirectionName(deg);
+                updateHint(dirNameFixed + ' - Real speed test ho rahi hai...', false);
+                compass.setScanAngle(deg);
+            }
 
-            const dirName = compass.getDirectionName(deg);
-            updateHint(`${dirName} direction check ho rahi hai...`, false);
-
-            const speed = await speedTester.quickSpeedCheck();
+            // Measure REAL speed with actual byte transfer
+            var speed = await speedTester.quickSpeedCheck();
 
             if (!isScanning) break;
 
-            const result = compass.updateSector(deg, speed);
+            var sectorDeg = compass.sensorAvailable ? compass.getNearestSector(deg) : deg;
+            var result = compass.updateSector(sectorDeg, speed);
 
-            addHistoryItem(deg, speed, result.bestDirection === deg);
+            addHistoryItem(sectorDeg, speed, result.bestDirection === sectorDeg);
 
             if (result.bestDirection !== null) {
-                elements.compassArrow.style.transform =
-                    `translateX(-50%) rotate(${result.bestDirection}deg)`;
+                elements.compassArrow.style.transform = 'translateX(-50%) rotate(' + result.bestDirection + 'deg)';
                 elements.compassSpeed.textContent = result.bestSpeed.toFixed(1);
-                elements.compassDirection.textContent =
-                    compass.getShortDirection(result.bestDirection);
+                elements.compassDirection.textContent = compass.getShortDirection(result.bestDirection);
             }
 
-            await sleep(500);
+            await sleep(800);
         }
 
         if (isScanning) {
@@ -217,21 +207,12 @@
         isScanning = false;
         compass.stopScan();
         elements.btnScan.classList.remove('scanning');
-        elements.btnScan.innerHTML = `
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
-                <path d="M21 12a9 9 0 1 1-9-9"></path>
-                <path d="M21 3v6h-6"></path>
-            </svg>
-            Scan
-        `;
+        elements.btnScan.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M21 12a9 9 0 1 1-9-9"></path><path d="M21 3v6h-6"></path></svg> Scan';
 
         if (compass.bestDirection !== null) {
-            const bestDir = compass.getDirectionName(compass.bestDirection);
-            const bestSpeed = compass.sectorData[compass.bestDirection].speed;
-            updateHint(
-                `Best signal: ${bestDir} - ${bestSpeed.toFixed(1)} Mbps. Is taraf jaayein!`,
-                true
-            );
+            var bestDir = compass.getDirectionName(compass.bestDirection);
+            var bestSpeed = compass.sectorData[compass.bestDirection].speed;
+            updateHint('Best signal: ' + bestDir + ' - ' + bestSpeed.toFixed(1) + ' Mbps. Is taraf jaayein!', true);
         } else {
             updateHint('Scan complete. Koi strong direction nahi mili.', false);
         }
@@ -253,13 +234,7 @@
 
         elements.btnSpeedTest.disabled = true;
         elements.btnSpeedTest.classList.add('testing');
-        elements.btnSpeedTest.innerHTML = `
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20" style="animation: spin 1s linear infinite">
-                <path d="M21 12a9 9 0 1 1-9-9"></path>
-                <path d="M21 3v6h-6"></path>
-            </svg>
-            Testing...
-        `;
+        elements.btnSpeedTest.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20" style="animation: spin 1s linear infinite"><path d="M21 12a9 9 0 1 1-9-9"></path><path d="M21 3v6h-6"></path></svg> Real Speed Test...';
 
         speedTester.onProgress = function (type, data) {
             switch (type) {
@@ -301,16 +276,11 @@
 
         elements.btnSpeedTest.disabled = false;
         elements.btnSpeedTest.classList.remove('testing');
-        elements.btnSpeedTest.innerHTML = `
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
-                <polygon points="5 3 19 12 5 21 5 3"></polygon>
-            </svg>
-            Dobara Test Karein
-        `;
+        elements.btnSpeedTest.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg> Dobara Test Karein';
     }
 
     function addHistoryItem(degree, speed, isBest) {
-        const entry = {
+        var entry = {
             direction: compass.getShortDirection(degree),
             directionFull: compass.getDirectionName(degree),
             speed: speed,
@@ -319,45 +289,33 @@
         };
 
         scanHistory.unshift(entry);
-
         renderHistory();
     }
 
     function renderHistory() {
         if (scanHistory.length === 0) {
-            elements.historyList.innerHTML = `
-                <div class="empty-history">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="48" height="48">
-                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                        <polyline points="14 2 14 8 20 8"></polyline>
-                    </svg>
-                    <p>Abhi tak koi scan nahi hua</p>
-                </div>
-            `;
+            elements.historyList.innerHTML = '<div class="empty-history"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="48" height="48"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg><p>Abhi tak koi scan nahi hua</p></div>';
             return;
         }
 
-        let bestSpeed = Math.max(...scanHistory.map(e => e.speed));
+        var speeds = scanHistory.map(function (e) { return e.speed; });
+        var bestSpeed = Math.max.apply(null, speeds);
 
-        elements.historyList.innerHTML = scanHistory
-            .map(entry => {
-                const timeStr = entry.time.toLocaleTimeString('hi-IN', {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    second: '2-digit'
-                });
-                const isBestEntry = entry.speed === bestSpeed && entry.speed > 0;
+        elements.historyList.innerHTML = scanHistory.map(function (entry) {
+            var timeStr = entry.time.toLocaleTimeString('hi-IN', {
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            });
+            var isBestEntry = entry.speed === bestSpeed && entry.speed > 0;
 
-                return `
-                    <div class="history-item">
-                        <span class="history-direction">${entry.direction}</span>
-                        <span class="history-speed">${entry.speed.toFixed(2)} Mbps</span>
-                        ${isBestEntry ? '<span class="history-best">Best</span>' : ''}
-                        <span class="history-time">${timeStr}</span>
-                    </div>
-                `;
-            })
-            .join('');
+            return '<div class="history-item">' +
+                '<span class="history-direction">' + entry.direction + '</span>' +
+                '<span class="history-speed">' + entry.speed.toFixed(2) + ' Mbps</span>' +
+                (isBestEntry ? '<span class="history-best">Best</span>' : '') +
+                '<span class="history-time">' + timeStr + '</span>' +
+            '</div>';
+        }).join('');
     }
 
     function clearHistory() {
@@ -389,6 +347,7 @@
     /* ========== Network Device Scanner ========== */
 
     var isDeviceScanning = false;
+    var currentLocalIp = null;
 
     async function toggleDeviceScan() {
         if (isDeviceScanning) {
@@ -405,9 +364,10 @@
         elements.btnScanDevices.classList.add('scanning');
         elements.btnScanDevices.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><rect x="6" y="6" width="12" height="12" rx="2"></rect></svg> Stop';
         elements.scanProgress.textContent = 'IP detect ho raha hai...';
-        elements.devicesList.innerHTML = '<div class="empty-history"><p>Scanning...</p></div>';
+        elements.devicesList.innerHTML = '<div class="empty-history"><p>Scanning & identifying devices...</p></div>';
 
         var localIp = await networkScanner.getLocalIp();
+        currentLocalIp = localIp;
 
         if (!localIp) {
             elements.scanProgress.textContent = 'IP detect nahi hua';
@@ -421,25 +381,39 @@
         elements.yourIp.textContent = localIp;
         elements.subnetRange.textContent = subnet + '.1-254';
         elements.gatewayIp.textContent = subnet + '.1';
-        elements.scanProgress.textContent = 'Scanning...';
+        elements.scanProgress.textContent = 'Scanning & fingerprinting...';
 
-        networkScanner.onDeviceFound = function (device) {
+        networkScanner.onDeviceFound = function () {
             updateDevicesList(networkScanner.foundDevices, localIp);
         };
 
         networkScanner.onProgress = function (progress) {
-            elements.scanProgress.textContent = progress.percent + '% (' + progress.found + ' found)';
+            elements.scanProgress.textContent = progress.percent + '% (' + progress.found + ' devices)';
             elements.devicesCount.textContent = progress.found;
             updateDevicesRing(progress.percent);
         };
 
         networkScanner.onComplete = function (devices) {
-            elements.scanProgress.textContent = 'Done! ' + devices.length + ' devices';
+            var onlineCount = devices.filter(function (d) { return d.status === 'online'; }).length;
+            elements.scanProgress.textContent = 'Live: ' + onlineCount + ' / ' + devices.length + ' devices';
             elements.devicesCount.textContent = devices.length;
             updateDevicesRing(100);
             updateDevicesList(devices, localIp);
             isDeviceScanning = false;
             resetDeviceScanButton();
+
+            networkScanner.onDeviceUpdated = function () {
+                updateDevicesList(networkScanner.foundDevices, localIp);
+                var online = networkScanner.foundDevices.filter(function (d) { return d.status === 'online'; }).length;
+                elements.scanProgress.textContent = 'Live: ' + online + ' / ' + networkScanner.foundDevices.length + ' devices';
+                elements.devicesCount.textContent = networkScanner.foundDevices.length;
+            };
+
+            networkScanner.onDeviceLost = function (device) {
+                updateDevicesList(networkScanner.foundDevices, localIp);
+            };
+
+            networkScanner.startMonitoring(15000);
         };
 
         await networkScanner.scanSubnet(localIp);
@@ -456,6 +430,15 @@
         elements.devicesProgress.setAttribute('stroke-dashoffset', offset);
     }
 
+    function formatLastSeen(timestamp) {
+        if (!timestamp) return '';
+        var diff = Math.round((Date.now() - timestamp) / 1000);
+        if (diff < 5) return 'just now';
+        if (diff < 60) return diff + 's ago';
+        if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+        return Math.floor(diff / 3600) + 'h ago';
+    }
+
     function updateDevicesList(devices, localIp) {
         if (devices.length === 0) {
             elements.devicesListHeader.style.display = 'none';
@@ -467,22 +450,41 @@
         elements.devicesListCount.textContent = devices.length;
 
         elements.devicesList.innerHTML = devices.map(function (device) {
-            var isGateway = device.ip.endsWith('.1');
             var isSelf = device.ip === localIp;
-            var badgeClass = isSelf ? 'you' : isGateway ? 'gateway' : 'active';
-            var badgeText = isSelf ? 'You' : isGateway ? 'Router' : 'Active';
-            var iconClass = isSelf ? 'self' : isGateway ? 'router' : '';
+            var isGateway = device.ip.endsWith('.1');
+            var isOffline = device.status === 'offline';
 
-            return '<div class="device-item">' +
+            var badgeClass = isSelf ? 'you' : isGateway ? 'gateway' : isOffline ? 'offline' : 'active';
+            var badgeText = isSelf ? 'You' : isGateway ? 'Router' : isOffline ? 'Offline' : 'Online';
+            var iconClass = isSelf ? 'self' : isGateway ? 'router' : isOffline ? 'offline' : '';
+
+            var deviceName = device.type ? device.type.name : 'Unknown Device';
+            var hostname = device.type && device.type.hostname ? device.type.hostname : '';
+            var iconType = device.type ? device.type.icon : 'device';
+
+            var portsInfo = '';
+            if (device.openPorts && device.openPorts.length > 0) {
+                portsInfo = ' <span class="device-ports">' + device.openPorts.join(', ') + '</span>';
+            }
+
+            var lastSeenText = formatLastSeen(device.lastSeen);
+
+            return '<div class="device-item' + (isOffline ? ' device-offline' : '') + '">' +
                 '<div class="device-item-icon ' + iconClass + '">' +
-                    networkScanner.getDeviceIcon(device.type.icon) +
+                    networkScanner.getDeviceIcon(iconType) +
                 '</div>' +
                 '<div class="device-item-info">' +
-                    '<div class="device-item-name">' + device.type.name + '</div>' +
-                    '<div class="device-item-ip">' + device.ip + '</div>' +
+                    '<div class="device-item-name">' + deviceName + '</div>' +
+                    '<div class="device-item-ip">' + device.ip +
+                        (hostname ? ' &middot; ' + hostname : '') +
+                    '</div>' +
+                    (portsInfo ? '<div class="device-item-ports">Ports: ' + portsInfo + '</div>' : '') +
                 '</div>' +
-                '<span class="device-item-badge ' + badgeClass + '">' + badgeText + '</span>' +
-                (device.responseTime > 0 ? '<span class="device-item-time">' + device.responseTime + 'ms</span>' : '') +
+                '<div class="device-item-meta">' +
+                    '<span class="device-item-badge ' + badgeClass + '">' + badgeText + '</span>' +
+                    (device.responseTime > 0 ? '<span class="device-item-time">' + device.responseTime + 'ms</span>' : '') +
+                    (lastSeenText ? '<span class="device-item-seen">' + lastSeenText + '</span>' : '') +
+                '</div>' +
             '</div>';
         }).join('');
     }
