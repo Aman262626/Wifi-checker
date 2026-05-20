@@ -1,0 +1,13 @@
+{
+  "name": "wifi-signal-checker",
+  "version": "1.0.0",
+  "description": "WiFi Signal Checker with Digital Compass - Shows best signal direction",
+  "main": "index.html",
+  "scripts": {
+    "start": "npx serve . -l 8080",
+    "dev": "npx serve . -l 8080"
+  },
+  "keywords": ["wifi", "signal", "checker", "compass", "speed-test"],
+  "author": "Aman262626",
+  "license": "MIT"
+}
