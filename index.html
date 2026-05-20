@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>WiFi Signal Checker - Digital Compass</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700;900&family=Rajdhani:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="app-header">
+            <div class="header-glow"></div>
+            <h1 class="app-title">
+                <span class="wifi-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M5 12.55a11 11 0 0 1 14.08 0"></path>
+                        <path d="M1.42 9a16 16 0 0 1 21.16 0"></path>
+                        <path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path>
+                        <line x1="12" y1="20" x2="12.01" y2="20"></line>
+                    </svg>
+                </span>
+                WiFi Signal Checker
+            </h1>
+            <p class="app-subtitle">Digital Compass & Signal Direction Finder</p>
+        </header>
+
+        <!-- Signal Strength Card -->
+        <section class="card signal-card">
+            <div class="card-header">
+                <h2>Signal Strength</h2>
+                <div class="live-badge">
+                    <span class="pulse-dot"></span> LIVE
+                </div>
+            </div>
+            <div class="signal-meter-container">
+                <div class="signal-bars">
+                    <div class="bar bar-1" id="bar1"></div>
+                    <div class="bar bar-2" id="bar2"></div>
+                    <div class="bar bar-3" id="bar3"></div>
+                    <div class="bar bar-4" id="bar4"></div>
+                    <div class="bar bar-5" id="bar5"></div>
+                </div>
+                <div class="signal-info">
+                    <span class="signal-value" id="signalValue">--</span>
+                    <span class="signal-unit">Mbps</span>
+                    <span class="signal-label" id="signalLabel">Checking...</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Digital Compass -->
+        <section class="card compass-card">
+            <div class="card-header">
+                <h2>Signal Direction Compass</h2>
+                <button class="btn-scan" id="btnScan">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                        <path d="M21 12a9 9 0 1 1-9-9"></path>
+                        <path d="M21 3v6h-6"></path>
+                    </svg>
+                    Scan
+                </button>
+            </div>
+            <div class="compass-wrapper">
+                <canvas id="compassCanvas" width="320" height="320"></canvas>
+                <div class="compass-center">
+                    <div class="compass-arrow" id="compassArrow">
+                        <div class="arrow-tip"></div>
+                    </div>
+                    <div class="compass-speed" id="compassSpeed">--</div>
+                    <div class="compass-direction" id="compassDirection">N</div>
+                </div>
+                <div class="compass-indicator north">N</div>
+                <div class="compass-indicator east">E</div>
+                <div class="compass-indicator south">S</div>
+                <div class="compass-indicator west">W</div>
+            </div>
+            <div class="direction-hint" id="directionHint">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <line x1="12" y1="8" x2="12" y2="16"></line>
+                    <line x1="8" y1="12" x2="16" y2="12"></line>
+                </svg>
+                <span>Scanning shuru karne ke liye "Scan" button dabayein</span>
+            </div>
+        </section>
+
+        <!-- Speed Test Card -->
+        <section class="card speed-card">
+            <div class="card-header">
+                <h2>Speed Test</h2>
+            </div>
+            <div class="speed-test-container">
+                <div class="speed-gauge">
+                    <canvas id="speedGauge" width="200" height="120"></canvas>
+                    <div class="speed-display">
+                        <span class="speed-number" id="speedNumber">0</span>
+                        <span class="speed-mbps">Mbps</span>
+                    </div>
+                </div>
+                <div class="speed-details">
+                    <div class="speed-detail">
+                        <span class="detail-label">Download</span>
+                        <span class="detail-value" id="downloadSpeed">--</span>
+                    </div>
+                    <div class="speed-detail">
+                        <span class="detail-label">Upload</span>
+                        <span class="detail-value" id="uploadSpeed">--</span>
+                    </div>
+                    <div class="speed-detail">
+                        <span class="detail-label">Ping</span>
+                        <span class="detail-value" id="pingValue">--</span>
+                    </div>
+                    <div class="speed-detail">
+                        <span class="detail-label">Jitter</span>
+                        <span class="detail-value" id="jitterValue">--</span>
+                    </div>
+                </div>
+                <button class="btn-speedtest" id="btnSpeedTest">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+                        <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                    </svg>
+                    Speed Test Shuru Karein
+                </button>
+            </div>
+        </section>
+
+        <!-- Connection Info Card -->
+        <section class="card info-card">
+            <div class="card-header">
+                <h2>Connection Info</h2>
+            </div>
+            <div class="info-grid">
+                <div class="info-item">
+                    <div class="info-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+                            <line x1="8" y1="21" x2="16" y2="21"></line>
+                            <line x1="12" y1="17" x2="12" y2="21"></line>
+                        </svg>
+                    </div>
+                    <div class="info-text">
+                        <span class="info-label">Connection Type</span>
+                        <span class="info-value" id="connType">--</span>
+                    </div>
+                </div>
+                <div class="info-item">
+                    <div class="info-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+                        </svg>
+                    </div>
+                    <div class="info-text">
+                        <span class="info-label">Effective Type</span>
+                        <span class="info-value" id="effType">--</span>
+                    </div>
+                </div>
+                <div class="info-item">
+                    <div class="info-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <polyline points="12 6 12 12 16 14"></polyline>
+                        </svg>
+                    </div>
+                    <div class="info-text">
+                        <span class="info-label">RTT (Round Trip)</span>
+                        <span class="info-value" id="rttValue">--</span>
+                    </div>
+                </div>
+                <div class="info-item">
+                    <div class="info-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M12 2L2 7l10 5 10-5-10-5z"></path>
+                            <path d="M2 17l10 5 10-5"></path>
+                            <path d="M2 12l10 5 10-5"></path>
+                        </svg>
+                    </div>
+                    <div class="info-text">
+                        <span class="info-label">Downlink</span>
+                        <span class="info-value" id="downlink">--</span>
+                    </div>
+                </div>
+                <div class="info-item">
+                    <div class="info-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                            <circle cx="12" cy="12" r="3"></circle>
+                        </svg>
+                    </div>
+                    <div class="info-text">
+                        <span class="info-label">IP Address</span>
+                        <span class="info-value" id="ipAddress">--</span>
+                    </div>
+                </div>
+                <div class="info-item">
+                    <div class="info-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <line x1="2" y1="12" x2="22" y2="12"></line>
+                            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+                        </svg>
+                    </div>
+                    <div class="info-text">
+                        <span class="info-label">ISP / Location</span>
+                        <span class="info-value" id="ispInfo">--</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Connected Devices Card -->
+        <section class="card devices-card">
+            <div class="card-header">
+                <h2>Connected Devices</h2>
+                <button class="btn-scan" id="btnScanDevices">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                        <path d="M21 12a9 9 0 1 1-9-9"></path>
+                        <path d="M21 3v6h-6"></path>
+                    </svg>
+                    Scan Network
+                </button>
+            </div>
+            <div class="devices-overview">
+                <div class="devices-count-circle">
+                    <svg viewBox="0 0 120 120" width="120" height="120" id="devicesRing">
+                        <circle cx="60" cy="60" r="52" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="8"/>
+                        <circle cx="60" cy="60" r="52" fill="none" stroke="url(#deviceGradient)" stroke-width="8"
+                            stroke-dasharray="327" stroke-dashoffset="327" stroke-linecap="round"
+                            transform="rotate(-90 60 60)" id="devicesProgress"/>
+                        <defs>
+                            <linearGradient id="deviceGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                                <stop offset="0%" stop-color="#00d4ff"/>
+                                <stop offset="100%" stop-color="#00ff88"/>
+                            </linearGradient>
+                        </defs>
+                    </svg>
+                    <div class="devices-count-inner">
+                        <span class="devices-number" id="devicesCount">0</span>
+                        <span class="devices-label">Devices</span>
+                    </div>
+                </div>
+                <div class="devices-stats">
+                    <div class="device-stat">
+                        <span class="device-stat-value" id="yourIp">--</span>
+                        <span class="device-stat-label">Your IP</span>
+                    </div>
+                    <div class="device-stat">
+                        <span class="device-stat-value" id="subnetRange">--</span>
+                        <span class="device-stat-label">Subnet Range</span>
+                    </div>
+                    <div class="device-stat">
+                        <span class="device-stat-value" id="scanProgress">--</span>
+                        <span class="device-stat-label">Scan Status</span>
+                    </div>
+                    <div class="device-stat">
+                        <span class="device-stat-value" id="gatewayIp">--</span>
+                        <span class="device-stat-label">Gateway (Router)</span>
+                    </div>
+                </div>
+            </div>
+            <div class="devices-list-header" id="devicesListHeader" style="display:none;">
+                <span>Found Devices</span>
+                <span class="devices-list-count" id="devicesListCount">0</span>
+            </div>
+            <div class="devices-list" id="devicesList">
+                <div class="empty-history">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="48" height="48">
+                        <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+                        <line x1="8" y1="21" x2="16" y2="21"></line>
+                        <line x1="12" y1="17" x2="12" y2="21"></line>
+                    </svg>
+                    <p>Network scan karein devices dekhne ke liye</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Direction History -->
+        <section class="card history-card">
+            <div class="card-header">
+                <h2>Scan History</h2>
+                <button class="btn-clear" id="btnClear">Clear</button>
+            </div>
+            <div class="history-list" id="historyList">
+                <div class="empty-history">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="48" height="48">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                        <polyline points="14 2 14 8 20 8"></polyline>
+                    </svg>
+                    <p>Abhi tak koi scan nahi hua</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Footer -->
+        <footer class="app-footer">
+            <p>WiFi Signal Checker v1.0 | Made with <span class="heart">&#9829;</span></p>
+        </footer>
+    </div>
+
+    <script src="js/compass.js"></script>
+    <script src="js/speedtest.js"></script>
+    <script src="js/network-scanner.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>
