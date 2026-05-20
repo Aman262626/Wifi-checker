@@ -7,6 +7,7 @@
 
     const compass = new DigitalCompass('compassCanvas');
     const speedTester = new SpeedTester();
+    const networkScanner = new NetworkScanner();
 
     const elements = {
         signalValue: document.getElementById('signalValue'),
@@ -36,7 +37,17 @@
         downlink: document.getElementById('downlink'),
         ipAddress: document.getElementById('ipAddress'),
         ispInfo: document.getElementById('ispInfo'),
-        historyList: document.getElementById('historyList')
+        historyList: document.getElementById('historyList'),
+        btnScanDevices: document.getElementById('btnScanDevices'),
+        devicesCount: document.getElementById('devicesCount'),
+        devicesProgress: document.getElementById('devicesProgress'),
+        yourIp: document.getElementById('yourIp'),
+        subnetRange: document.getElementById('subnetRange'),
+        scanProgress: document.getElementById('scanProgress'),
+        gatewayIp: document.getElementById('gatewayIp'),
+        devicesList: document.getElementById('devicesList'),
+        devicesListHeader: document.getElementById('devicesListHeader'),
+        devicesListCount: document.getElementById('devicesListCount')
     };
 
     let scanHistory = [];
@@ -56,6 +67,7 @@
         elements.btnScan.addEventListener('click', toggleScan);
         elements.btnSpeedTest.addEventListener('click', runSpeedTest);
         elements.btnClear.addEventListener('click', clearHistory);
+        elements.btnScanDevices.addEventListener('click', toggleDeviceScan);
 
         if ('connection' in navigator) {
             navigator.connection.addEventListener('change', updateConnectionInfo);
@@ -372,6 +384,107 @@
             elements.ipAddress.textContent = 'N/A';
             elements.ispInfo.textContent = 'N/A';
         }
+    }
+
+    /* ========== Network Device Scanner ========== */
+
+    var isDeviceScanning = false;
+
+    async function toggleDeviceScan() {
+        if (isDeviceScanning) {
+            networkScanner.stop();
+            isDeviceScanning = false;
+            resetDeviceScanButton();
+            return;
+        }
+        startDeviceScan();
+    }
+
+    async function startDeviceScan() {
+        isDeviceScanning = true;
+        elements.btnScanDevices.classList.add('scanning');
+        elements.btnScanDevices.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><rect x="6" y="6" width="12" height="12" rx="2"></rect></svg> Stop';
+        elements.scanProgress.textContent = 'IP detect ho raha hai...';
+        elements.devicesList.innerHTML = '<div class="empty-history"><p>Scanning...</p></div>';
+
+        var localIp = await networkScanner.getLocalIp();
+
+        if (!localIp) {
+            elements.scanProgress.textContent = 'IP detect nahi hua';
+            elements.devicesList.innerHTML = '<div class="empty-history"><p>Local IP detect nahi ho saka. WiFi se connect karein.</p></div>';
+            isDeviceScanning = false;
+            resetDeviceScanButton();
+            return;
+        }
+
+        var subnet = networkScanner.parseSubnet(localIp);
+        elements.yourIp.textContent = localIp;
+        elements.subnetRange.textContent = subnet + '.1-254';
+        elements.gatewayIp.textContent = subnet + '.1';
+        elements.scanProgress.textContent = 'Scanning...';
+
+        networkScanner.onDeviceFound = function (device) {
+            updateDevicesList(networkScanner.foundDevices, localIp);
+        };
+
+        networkScanner.onProgress = function (progress) {
+            elements.scanProgress.textContent = progress.percent + '% (' + progress.found + ' found)';
+            elements.devicesCount.textContent = progress.found;
+            updateDevicesRing(progress.percent);
+        };
+
+        networkScanner.onComplete = function (devices) {
+            elements.scanProgress.textContent = 'Done! ' + devices.length + ' devices';
+            elements.devicesCount.textContent = devices.length;
+            updateDevicesRing(100);
+            updateDevicesList(devices, localIp);
+            isDeviceScanning = false;
+            resetDeviceScanButton();
+        };
+
+        await networkScanner.scanSubnet(localIp);
+    }
+
+    function resetDeviceScanButton() {
+        elements.btnScanDevices.classList.remove('scanning');
+        elements.btnScanDevices.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M21 12a9 9 0 1 1-9-9"></path><path d="M21 3v6h-6"></path></svg> Scan Network';
+    }
+
+    function updateDevicesRing(percent) {
+        var circumference = 327;
+        var offset = circumference - (percent / 100) * circumference;
+        elements.devicesProgress.setAttribute('stroke-dashoffset', offset);
+    }
+
+    function updateDevicesList(devices, localIp) {
+        if (devices.length === 0) {
+            elements.devicesListHeader.style.display = 'none';
+            elements.devicesList.innerHTML = '<div class="empty-history"><p>Koi device nahi mila</p></div>';
+            return;
+        }
+
+        elements.devicesListHeader.style.display = 'flex';
+        elements.devicesListCount.textContent = devices.length;
+
+        elements.devicesList.innerHTML = devices.map(function (device) {
+            var isGateway = device.ip.endsWith('.1');
+            var isSelf = device.ip === localIp;
+            var badgeClass = isSelf ? 'you' : isGateway ? 'gateway' : 'active';
+            var badgeText = isSelf ? 'You' : isGateway ? 'Router' : 'Active';
+            var iconClass = isSelf ? 'self' : isGateway ? 'router' : '';
+
+            return '<div class="device-item">' +
+                '<div class="device-item-icon ' + iconClass + '">' +
+                    networkScanner.getDeviceIcon(device.type.icon) +
+                '</div>' +
+                '<div class="device-item-info">' +
+                    '<div class="device-item-name">' + device.type.name + '</div>' +
+                    '<div class="device-item-ip">' + device.ip + '</div>' +
+                '</div>' +
+                '<span class="device-item-badge ' + badgeClass + '">' + badgeText + '</span>' +
+                (device.responseTime > 0 ? '<span class="device-item-time">' + device.responseTime + 'ms</span>' : '') +
+            '</div>';
+        }).join('');
     }
 
     function sleep(ms) {
